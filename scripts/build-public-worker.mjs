@@ -197,7 +197,7 @@ export default {
       try {
         const response = await fetch(OPENAI_TRANSCRIBE_URL, {
           method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { Authorization: \`Bearer \${apiKey}\` },
           body: form,
         });
 
