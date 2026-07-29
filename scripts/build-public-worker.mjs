@@ -66,7 +66,14 @@ function json(body, status = 200) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const voiceConfigured = Boolean(env.OPENAI_API_KEY?.trim());
+    const secretBinding = env.OPENAI_API_KEY;
+    const apiKey =
+      typeof secretBinding === "string"
+        ? secretBinding.trim()
+        : typeof secretBinding?.get === "function"
+          ? (await secretBinding.get())?.trim()
+          : "";
+    const voiceConfigured = Boolean(apiKey);
 
     if (url.pathname === "/health") {
       return json({
@@ -113,7 +120,7 @@ export default {
         const response = await fetch(OPENAI_SPEECH_URL, {
           method: "POST",
           headers: {
-            Authorization: \`Bearer \${env.OPENAI_API_KEY.trim()}\`,
+            Authorization: \`Bearer \${apiKey}\`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
