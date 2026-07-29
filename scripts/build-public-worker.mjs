@@ -41,6 +41,8 @@ for (const path of await walk(distDir)) {
 const workerSource = `
 const ASSETS = ${JSON.stringify(assets)};
 const OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech";
+const OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions";
+const MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const VOICE_INSTRUCTIONS =
   "한국어 모어민인 유능하고 따뜻한 미용실 AI 실장입니다. 안내방송이나 광고 성우처럼 읽지 말고, 바로 옆에서 원장님께 보고하는 실제 직원처럼 자연스럽게 말하세요. 첫 문장은 편안하고 친근하게, 부족 수량은 또렷하지만 걱정을 과장하지 않게, 마지막 질문은 부담 없이 제안하는 억양으로 마무리하세요. 쉼표에서는 짧게 호흡하고 문장마다 같은 높낮이를 반복하지 마세요. 로봇 같은 박자, 과한 감정, 지나치게 느린 발음은 피하세요.";
 
@@ -158,11 +160,67 @@ export default {
       }
     }
 
-    if (url.pathname === "/api/transcribe") {
-      return json(
-        { error: "공개 버전에서는 브라우저 음성 인식을 사용합니다." },
-        503,
+    if (url.pathname === "/api/transcribe" && request.method === "POST") {
+      if (!voiceConfigured) {
+        return json(
+          { error: "GPT 음성 키가 아직 연결되지 않았습니다." },
+          503,
+        );
+      }
+
+      let audio = null;
+      try {
+        const incoming = await request.formData();
+        const candidate = incoming.get("audio");
+        audio = candidate instanceof File ? candidate : null;
+      } catch {
+        return json({ error: "음성 파일을 읽지 못했습니다." }, 400);
+      }
+
+      if (!audio || audio.size === 0 || audio.size > MAX_AUDIO_BYTES) {
+        return json(
+          { error: "유효한 6MB 이하의 음성 파일이 필요합니다." },
+          400,
+        );
+      }
+
+      const form = new FormData();
+      form.append("file", audio, audio.name || "answer.webm");
+      form.append("model", "gpt-4o-mini-transcribe");
+      form.append("language", "ko");
+      form.append("response_format", "json");
+      form.append(
+        "prompt",
+        "미용실 원장님이 자동 주문 제안에 짧게 답합니다. 가능한 답변: 네, 예, 좋아요, 주문해줘, 진행해줘, 아니요, 나중에.",
       );
+
+      try {
+        const response = await fetch(OPENAI_TRANSCRIBE_URL, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+        });
+
+        if (!response.ok) {
+          return json(
+            {
+              error: "GPT가 답변을 인식하지 못했습니다.",
+              requestId: response.headers.get("x-request-id") || undefined,
+            },
+            502,
+          );
+        }
+
+        const result = await response.json();
+        return json({
+          text: typeof result.text === "string" ? result.text : "",
+        });
+      } catch {
+        return json(
+          { error: "GPT 음성 인식 서버에 연결하지 못했습니다." },
+          502,
+        );
+      }
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {
